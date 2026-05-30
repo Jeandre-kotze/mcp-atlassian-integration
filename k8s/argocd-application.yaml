@@ -6,8 +6,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'https://github.com/your-org/your-repo'
-    targetRevision: HEAD
+    repoURL: 'https://github.com/Jeandre-kotze/mcp-atlassian-integration'
+    targetRevision: main
     path: k8s
   destination:
     server: 'https://kubernetes.default.svc'
