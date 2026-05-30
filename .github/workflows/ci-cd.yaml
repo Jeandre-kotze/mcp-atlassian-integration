@@ -54,6 +54,9 @@ jobs:
           ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
         run: |
           argocd login "$ARGOCD_SERVER" --username "$ARGOCD_USERNAME" --password "$ARGOCD_PASSWORD" --insecure
+      - name: Create or update Argo CD application
+        run: |
+          argocd app create -f k8s/argocd-application.yaml --upsert
       - name: Sync Argo CD application
         run: |
           argocd app sync mcp-atlassian
