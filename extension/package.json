@@ -1,0 +1,53 @@
+{
+  "name": "mcp-atlassian-vscode",
+  "displayName": "MCP Atlassian Integration",
+  "publisher": "mcp-atlassian",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "activationEvents": [
+    "onCommand:mcpAtlassian.startServer",
+    "onCommand:mcpAtlassian.stopServer",
+    "onCommand:mcpAtlassian.openHealth",
+    "onCommand:mcpAtlassian.copyEndpoint"
+  ],
+  "main": "extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mcpAtlassian.startServer",
+        "title": "MCP Atlassian: Start Server"
+      },
+      {
+        "command": "mcpAtlassian.stopServer",
+        "title": "MCP Atlassian: Stop Server"
+      },
+      {
+        "command": "mcpAtlassian.openHealth",
+        "title": "MCP Atlassian: Open Health Endpoint"
+      },
+      {
+        "command": "mcpAtlassian.copyEndpoint",
+        "title": "MCP Atlassian: Copy Server Endpoint"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "MCP Atlassian Integration",
+      "properties": {
+        "mcpAtlassian.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Local MCP server URL for Atlassian integration."
+        },
+        "mcpAtlassian.autoStart": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically start the local MCP server when VS Code activates."
+        }
+      }
+    }
+  },
+  "dependencies": {}
+}

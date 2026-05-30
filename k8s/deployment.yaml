@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-atlassian
+  labels:
+    app: mcp-atlassian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-atlassian
+  template:
+    metadata:
+      labels:
+        app: mcp-atlassian
+    spec:
+      containers:
+        - name: mcp-atlassian
+          image: mcp-atlassian:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: CONFLUENCE_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-atlassian-secrets
+                  key: confluenceBaseUrl
+            - name: CONFLUENCE_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-atlassian-secrets
+                  key: confluenceEmail
+            - name: CONFLUENCE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-atlassian-secrets
+                  key: confluenceApiToken
+            - name: JIRA_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-atlassian-secrets
+                  key: jiraBaseUrl
+            - name: JIRA_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-atlassian-secrets
+                  key: jiraEmail
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-atlassian-secrets
+                  key: jiraApiToken
