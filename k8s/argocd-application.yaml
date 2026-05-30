@@ -3,6 +3,12 @@ kind: Application
 metadata:
   name: mcp-atlassian
   namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: mcp-atlassian=ghcr.io/jeandre-kotze/mcp-atlassian-integration
+    argocd-image-updater.argoproj.io/mcp-atlassian.update-strategy: latest
+    argocd-image-updater.argoproj.io/mcp-atlassian.helm.image-name: image.name
+    argocd-image-updater.argoproj.io/mcp-atlassian.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/git-creds
 spec:
   project: default
   source:
@@ -16,5 +22,13 @@ spec:
     automated:
       prune: true
       selfHeal: true
+      allow:
+        empty: false
     syncOptions:
       - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -24,8 +24,13 @@ jobs:
       - name: Run syntax checks
         run: |
           node --check src/server.js src/confluence.js src/jira.js extension/extension.js
+      - name: Set image metadata
+        id: meta
+        run: |
+          echo "SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
       - name: Set image name
-        run: echo "IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/mcp-atlassian:${{ github.sha }}" >> $GITHUB_ENV
+        run: echo "IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/mcp-atlassian-integration" >> $GITHUB_ENV
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to GitHub Container Registry
@@ -39,30 +44,53 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE_NAME }}:latest,${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
+            ${{ env.IMAGE_NAME }}:${{ github.run_number }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+      - name: Notify Argo CD webhook (if configured)
+        if: ${{ vars.ARGOCD_WEBHOOK_URL }}
+        run: |
+          curl -X POST ${{ vars.ARGOCD_WEBHOOK_URL }} \
+            -H 'Content-Type: application/json' \
+            -H 'X-GitHub-Event: push' \
+            -d '{"repository":"${{ github.repository }}","sha":"${{ github.sha }}"}' \
+            || true
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
-      - name: Install Argo CD CLI
+      - name: Deploy via Argo CD (if secrets configured)
+        if: ${{ secrets.ARGOCD_SERVER && secrets.ARGOCD_USERNAME && secrets.ARGOCD_PASSWORD }}
         run: |
+          # Install Argo CD CLI
           curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
           chmod +x argocd
           sudo mv argocd /usr/local/bin/argocd
-      - name: Login to Argo CD
-        env:
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
-          ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
-        run: |
-          argocd login "$ARGOCD_SERVER" --username "$ARGOCD_USERNAME" --password "$ARGOCD_PASSWORD" --insecure
-      - name: Create or update Argo CD application
-        run: |
-          argocd app create -f k8s/argocd-application.yaml --upsert
-      - name: Sync Argo CD application
-        run: |
-          argocd app sync mcp-atlassian
+          
+          # Login to Argo CD
+          argocd login "${{ secrets.ARGOCD_SERVER }}" \
+            --username "${{ secrets.ARGOCD_USERNAME }}" \
+            --password "${{ secrets.ARGOCD_PASSWORD }}" \
+            --insecure
+          
+          # Create or update Argo CD application
+          argocd app create -f k8s/argocd-application.yaml --upsert || true
+          
+          # Sync the application
+          argocd app sync mcp-atlassian --force
+          
+          # Wait for sync to complete
           argocd app wait mcp-atlassian --health --timeout 5m
+      - name: Deploy status
+        if: always()
+        run: |
+          echo "Deployment triggered. If Argo CD secrets are not configured,"
+          echo "Image Updater will automatically detect the new image and sync."
