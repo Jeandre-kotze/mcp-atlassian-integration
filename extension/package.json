@@ -6,12 +6,6 @@
   "engines": {
     "vscode": "^1.80.0"
   },
-  "activationEvents": [
-    "onCommand:mcpAtlassian.startServer",
-    "onCommand:mcpAtlassian.stopServer",
-    "onCommand:mcpAtlassian.openHealth",
-    "onCommand:mcpAtlassian.copyEndpoint"
-  ],
   "main": "extension.js",
   "contributes": {
     "commands": [
@@ -24,14 +18,87 @@
         "title": "MCP Atlassian: Stop Server"
       },
       {
+        "command": "mcpAtlassian.openServer",
+        "title": "MCP Atlassian: Open MCP Server"
+      },
+      {
         "command": "mcpAtlassian.openHealth",
         "title": "MCP Atlassian: Open Health Endpoint"
       },
       {
         "command": "mcpAtlassian.copyEndpoint",
         "title": "MCP Atlassian: Copy Server Endpoint"
+      },
+      {
+        "command": "mcpAtlassian.openArgoOps",
+        "title": "MCP Atlassian: Open Argo Ops"
+      },
+      {
+        "command": "mcpAtlassian.startArgoPortForward",
+        "title": "MCP Atlassian: Start Argo Port Forward"
+      },
+      {
+        "command": "mcpAtlassian.setArgoUrl",
+        "title": "MCP Atlassian: Set Argo URL"
+      },
+      {
+        "command": "mcpAtlassian.setConfluencePat",
+        "title": "MCP Atlassian: Set Confluence PAT"
+      },
+      {
+        "command": "mcpAtlassian.setGhcrPat",
+        "title": "MCP Atlassian: Set GHCR PAT"
+      },
+      {
+        "command": "mcpAtlassian.setGithubPat",
+        "title": "MCP Atlassian: Set GitHub PAT"
+      },
+      {
+        "command": "mcpAtlassian.setJiraPat",
+        "title": "MCP Atlassian: Set Jira PAT"
+      },
+      {
+        "command": "mcpAtlassian.readConfluencePage",
+        "title": "MCP Atlassian: Read Confluence Page"
+      },
+      {
+        "command": "mcpAtlassian.updateConfluencePage",
+        "title": "MCP Atlassian: Update Confluence Page"
+      },
+      {
+        "command": "mcpAtlassian.searchConfluencePages",
+        "title": "MCP Atlassian: Search Confluence Pages"
+      },
+      {
+        "command": "mcpAtlassian.readJiraIssue",
+        "title": "MCP Atlassian: Read Jira Issue"
+      },
+      {
+        "command": "mcpAtlassian.updateJiraIssue",
+        "title": "MCP Atlassian: Update Jira Issue"
+      },
+      {
+        "command": "mcpAtlassian.searchJiraIssues",
+        "title": "MCP Atlassian: Search Jira Issues"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mcpAtlassianContainer",
+          "title": "MCP Atlassian",
+          "icon": "resources/mcp-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "mcpAtlassianContainer": [
+        {
+          "id": "mcpAtlassianView",
+          "name": "MCP Actions"
+        }
+      ]
+    },
     "configuration": {
       "type": "object",
       "title": "MCP Atlassian Integration",
@@ -40,6 +107,11 @@
           "type": "string",
           "default": "http://localhost:3000",
           "description": "Local MCP server URL for Atlassian integration."
+        },
+        "mcpAtlassian.argoUrl": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "URL for your Argo operations dashboard."
         },
         "mcpAtlassian.autoStart": {
           "type": "boolean",
