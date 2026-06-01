@@ -321,6 +321,47 @@ async function setGithubPat() {
   vscode.window.showInformationMessage('GitHub PAT saved to VS Code Secret Storage.');
 }
 
+async function postToServer(server, path, body) {
+  const url = `${server.url.replace(/\/$/, '')}${path}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to post to server ${server.name}: ${response.status} ${response.statusText} - ${text}`);
+  }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+// Enhanced: store PAT and optionally send to a registered MCP server
+async function setGithubPat() {
+  const pat = await askRequiredInput('GitHub Personal Access Token', 'Enter GitHub PAT (repo/packages scopes as needed)');
+  if (!extensionContext) throw new Error('Extension context not available');
+  await extensionContext.secrets.store('GITHUB_PAT', pat);
+  vscode.window.showInformationMessage('GitHub PAT saved to VS Code Secret Storage.');
+
+  const servers = getServers();
+  if (!servers || servers.length === 0) return;
+  const send = await vscode.window.showQuickPick(['No', 'Yes'], { placeHolder: 'Send this PAT to one of your registered MCP servers?' });
+  if (send !== 'Yes') return;
+  const pick = await vscode.window.showQuickPick(servers.map((s) => `${s.name} | ${s.url}`), { placeHolder: 'Select target server' });
+  if (!pick) return;
+  const server = servers.find((s) => `${s.name} | ${s.url}` === pick);
+  if (!server) return vscode.window.showErrorMessage('Selected server not found');
+  try {
+    await postToServer(server, '/config/github', { token: pat });
+    vscode.window.showInformationMessage(`GitHub PAT posted to MCP server '${server.name}'.`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to send PAT to server: ${err.message}`);
+  }
+}
+
 async function setJiraPat() {
   const base = await askRequiredInput('Jira base URL', 'e.g. https://your-domain.atlassian.net');
   const email = await askRequiredInput('Jira email', 'Atlassian user email');
