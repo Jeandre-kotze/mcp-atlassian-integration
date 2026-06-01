@@ -186,6 +186,29 @@ async function startServerEntry(server) {
   const pkgPath = path.join(server.workspacePath, 'package.json');
   if (!fs.existsSync(pkgPath)) return vscode.window.showErrorMessage('Cannot find package.json in the registered workspace path.');
   if (serverProcess) return vscode.window.showInformationMessage('An MCP server is already running.');
+  // Ensure Confluence/Jira creds exist for this server; prompt if missing
+  try {
+    const cKey = `confluence:${server.name}`;
+    const jKey = `jira:${server.name}`;
+    const cStored = await extensionContext.secrets.get(cKey);
+    const jStored = await extensionContext.secrets.get(jKey);
+    if (!cStored) {
+      const cbase = await askRequiredInput('Confluence base URL', 'e.g. https://your-domain.atlassian.net');
+      const cemail = await askRequiredInput('Confluence email', 'Atlassian user email');
+      const ctoken = await askRequiredInput('Confluence API token', 'Enter your Confluence API token');
+      await extensionContext.secrets.store(cKey, JSON.stringify({ base: cbase, email: cemail, token: ctoken }));
+      vscode.window.showInformationMessage('Confluence credentials saved to Secret Storage.');
+    }
+    if (!jStored) {
+      const jbase = await askRequiredInput('Jira base URL', 'e.g. https://your-domain.atlassian.net');
+      const jemail = await askRequiredInput('Jira email', 'Atlassian user email');
+      const jtoken = await askRequiredInput('Jira API token', 'Enter your Jira API token');
+      await extensionContext.secrets.store(jKey, JSON.stringify({ base: jbase, email: jemail, token: jtoken }));
+      vscode.window.showInformationMessage('Jira credentials saved to Secret Storage.');
+    }
+  } catch (err) {
+    // ignore
+  }
   const serverCmd = { command: 'npm', args: ['start'], options: { cwd: server.workspacePath, shell: true } };
   serverProcess = cp.spawn(serverCmd.command, serverCmd.args, serverCmd.options);
   log(`Starting MCP server for '${server.name}' in ${server.workspacePath}`);
@@ -231,6 +254,45 @@ async function downloadMcpConfig(server) {
 
   } catch (err) {
     vscode.window.showErrorMessage(`Failed to download MCP config: ${err.message}`);
+  }
+}
+
+async function importMcpConfig() {
+  const workspaceRoot = getWorkspaceRoot();
+  if (!workspaceRoot) return vscode.window.showErrorMessage('Open a workspace folder before importing configuration.');
+  const cfgPath = path.join(workspaceRoot, 'mcp-config.json');
+  if (!fs.existsSync(cfgPath)) return vscode.window.showErrorMessage('No mcp-config.json found in workspace root.');
+  try {
+    const raw = fs.readFileSync(cfgPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed.name || !parsed.url) return vscode.window.showErrorMessage('mcp-config.json missing required `name` or `url` fields.');
+    const servers = getServers();
+    const exists = servers.find((s) => s.name === parsed.name || s.url === parsed.url);
+    if (exists) return vscode.window.showInformationMessage('Server already registered.');
+    const isLocal = parsed.isLocal || false;
+    const workspacePath = isLocal ? workspaceRoot : undefined;
+    servers.push({ name: parsed.name, url: parsed.url, isLocal: !!isLocal, workspacePath });
+    await saveServers(servers);
+    vscode.window.showInformationMessage(`MCP server '${parsed.name}' imported and registered.`);
+    // prompt for PATs
+    try {
+      const cbase = await askRequiredInput('Confluence base URL', 'e.g. https://your-domain.atlassian.net');
+      const cemail = await askRequiredInput('Confluence email', 'Atlassian user email');
+      const ctoken = await askRequiredInput('Confluence API token', 'Enter your Confluence API token');
+      const confObj = { base: cbase, email: cemail, token: ctoken };
+      await extensionContext.secrets.store(`confluence:${parsed.name}`, JSON.stringify(confObj));
+      vscode.window.showInformationMessage('Confluence credentials saved to Secret Storage.');
+    } catch (err) {}
+    try {
+      const jbase = await askRequiredInput('Jira base URL', 'e.g. https://your-domain.atlassian.net');
+      const jemail = await askRequiredInput('Jira email', 'Atlassian user email');
+      const jtoken = await askRequiredInput('Jira API token', 'Enter your Jira API token');
+      const jiraObj = { base: jbase, email: jemail, token: jtoken };
+      await extensionContext.secrets.store(`jira:${parsed.name}`, JSON.stringify(jiraObj));
+      vscode.window.showInformationMessage('Jira credentials saved to Secret Storage.');
+    } catch (err) {}
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to import MCP config: ${err.message}`);
   }
 }
 
@@ -526,6 +588,7 @@ function activate(context) {
     vscode.commands.registerCommand('mcpAtlassian.addMcpServer', addMcpServer),
     vscode.commands.registerCommand('mcpAtlassian.openServerEntry', (server) => openServerEntry(server)),
     vscode.commands.registerCommand('mcpAtlassian.startServerEntry', (server) => startServerEntry(server)),
+    vscode.commands.registerCommand('mcpAtlassian.importMcpConfig', importMcpConfig),
     vscode.commands.registerCommand('mcpAtlassian.downloadMcpConfig', (server) => downloadMcpConfig(server)),
     vscode.commands.registerCommand('mcpAtlassian.readConfluencePage', readConfluencePage),
     vscode.commands.registerCommand('mcpAtlassian.updateConfluencePage', updateConfluencePage),
@@ -539,6 +602,51 @@ function activate(context) {
   const config = vscode.workspace.getConfiguration('mcpAtlassian');
   if (config.get('autoStart', false)) {
     setTimeout(() => startServer(context), 500);
+  }
+
+  // On activate, if there's an mcp-config.json in the workspace, offer to import/register it
+  try {
+    const workspaceRoot = getWorkspaceRoot();
+    if (workspaceRoot) {
+      const cfgPath = path.join(workspaceRoot, 'mcp-config.json');
+      if (fs.existsSync(cfgPath)) {
+        const raw = fs.readFileSync(cfgPath, 'utf8');
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch {}
+        const servers = getServers();
+        const exists = parsed && parsed.name && servers.find((s) => s.name === parsed.name || s.url === parsed.url);
+        if (parsed && parsed.name && parsed.url && !exists) {
+          vscode.window.showInformationMessage(`Found mcp-config.json for '${parsed.name}'. Register this server?`, 'Yes', 'No').then(async (ans) => {
+            if (ans === 'Yes') {
+              const isLocal = parsed.isLocal || false;
+              const workspacePath = isLocal ? workspaceRoot : undefined;
+              servers.push({ name: parsed.name, url: parsed.url, isLocal: !!isLocal, workspacePath });
+              await saveServers(servers);
+              vscode.window.showInformationMessage(`MCP server '${parsed.name}' registered.`);
+              // prompt for PATs
+              try {
+                const cbase = await askRequiredInput('Confluence base URL', 'e.g. https://your-domain.atlassian.net');
+                const cemail = await askRequiredInput('Confluence email', 'Atlassian user email');
+                const ctoken = await askRequiredInput('Confluence API token', 'Enter your Confluence API token');
+                const confObj = { base: cbase, email: cemail, token: ctoken };
+                await extensionContext.secrets.store(`confluence:${parsed.name}`, JSON.stringify(confObj));
+                vscode.window.showInformationMessage('Confluence credentials saved to Secret Storage.');
+              } catch (err) {}
+              try {
+                const jbase = await askRequiredInput('Jira base URL', 'e.g. https://your-domain.atlassian.net');
+                const jemail = await askRequiredInput('Jira email', 'Atlassian user email');
+                const jtoken = await askRequiredInput('Jira API token', 'Enter your Jira API token');
+                const jiraObj = { base: jbase, email: jemail, token: jtoken };
+                await extensionContext.secrets.store(`jira:${parsed.name}`, JSON.stringify(jiraObj));
+                vscode.window.showInformationMessage('Jira credentials saved to Secret Storage.');
+              } catch (err) {}
+            }
+          });
+        }
+      }
+    }
+  } catch (err) {
+    // ignore activation-time errors
   }
 }
 

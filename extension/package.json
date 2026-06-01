@@ -70,6 +70,10 @@
         "title": "MCP Atlassian: Start Registered Local MCP Server"
       },
       {
+        "command": "mcpAtlassian.importMcpConfig",
+        "title": "MCP Atlassian: Import MCP Configuration"
+      },
+      {
         "command": "mcpAtlassian.setJiraPat",
         "title": "MCP Atlassian: Set Jira PAT"
       },
