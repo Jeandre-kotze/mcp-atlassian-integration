@@ -118,6 +118,122 @@ function startServer(context) {
   });
 }
 
+function getServers() {
+  return extensionContext.globalState.get('mcpServers', []);
+}
+
+function saveServers(servers) {
+  return extensionContext.globalState.update('mcpServers', servers);
+}
+
+async function addMcpServer() {
+  const name = await askRequiredInput('MCP server name', 'friendly name for this server');
+  const url = await askRequiredInput('MCP server URL', 'e.g. https://mcp.example.com');
+  const isLocalPick = await vscode.window.showQuickPick(['Local (workspace)', 'Remote (cloud)'], { placeHolder: 'Is this a local workspace server or a remote/cloud server?' });
+  let isLocal = isLocalPick && isLocalPick.startsWith('Local');
+  let workspacePath = undefined;
+  if (isLocal) {
+    const folders = vscode.workspace.workspaceFolders || [];
+    if (folders.length === 0) {
+      vscode.window.showWarningMessage('No workspace folders open — cannot register a local MCP server without a workspace. Registering as remote instead.');
+      isLocal = false;
+    } else {
+      const pick = await vscode.window.showQuickPick(folders.map((f) => f.name), { placeHolder: 'Select the workspace folder that contains the local MCP server' });
+      const folder = folders.find((f) => f.name === pick);
+      workspacePath = folder ? folder.uri.fsPath : undefined;
+    }
+  }
+
+  const servers = getServers();
+  servers.push({ name, url, isLocal: !!isLocal, workspacePath });
+  await saveServers(servers);
+  vscode.window.showInformationMessage(`MCP server '${name}' added.`);
+
+  // Prompt for Confluence and Jira PATs after adding
+  try {
+    const cbase = await askRequiredInput('Confluence base URL', 'e.g. https://your-domain.atlassian.net');
+    const cemail = await askRequiredInput('Confluence email', 'Atlassian user email');
+    const ctoken = await askRequiredInput('Confluence API token', 'Enter your Confluence API token');
+    const confObj = { base: cbase, email: cemail, token: ctoken };
+    await extensionContext.secrets.store(`confluence:${name}`, JSON.stringify(confObj));
+    vscode.window.showInformationMessage('Confluence credentials saved to Secret Storage.');
+  } catch (err) {
+    // user cancelled; ignore
+  }
+
+  try {
+    const jbase = await askRequiredInput('Jira base URL', 'e.g. https://your-domain.atlassian.net');
+    const jemail = await askRequiredInput('Jira email', 'Atlassian user email');
+    const jtoken = await askRequiredInput('Jira API token', 'Enter your Jira API token');
+    const jiraObj = { base: jbase, email: jemail, token: jtoken };
+    await extensionContext.secrets.store(`jira:${name}`, JSON.stringify(jiraObj));
+    vscode.window.showInformationMessage('Jira credentials saved to Secret Storage.');
+  } catch (err) {
+    // ignore
+  }
+}
+
+async function openServerEntry(server) {
+  if (!server) return vscode.window.showErrorMessage('No server provided.');
+  vscode.env.openExternal(vscode.Uri.parse(server.url));
+}
+
+async function startServerEntry(server) {
+  if (!server) return vscode.window.showErrorMessage('No server provided.');
+  if (!server.isLocal) return vscode.window.showErrorMessage('Cannot start a remote/cloud server from this machine.');
+  if (!server.workspacePath) return vscode.window.showErrorMessage('No workspace path recorded for this local server.');
+  // start the server in the registered workspace path
+  const pkgPath = path.join(server.workspacePath, 'package.json');
+  if (!fs.existsSync(pkgPath)) return vscode.window.showErrorMessage('Cannot find package.json in the registered workspace path.');
+  if (serverProcess) return vscode.window.showInformationMessage('An MCP server is already running.');
+  const serverCmd = { command: 'npm', args: ['start'], options: { cwd: server.workspacePath, shell: true } };
+  serverProcess = cp.spawn(serverCmd.command, serverCmd.args, serverCmd.options);
+  log(`Starting MCP server for '${server.name}' in ${server.workspacePath}`);
+  vscode.window.showInformationMessage(`Starting MCP server '${server.name}'...`);
+  serverProcess.stdout.on('data', (chunk) => log(chunk.toString()));
+  serverProcess.stderr.on('data', (chunk) => log(chunk.toString()));
+  serverProcess.on('exit', (code, signal) => {
+    log(`MCP server '${server.name}' exited with code ${code}${signal ? ` signal ${signal}` : ''}`);
+    serverProcess = null;
+  });
+}
+
+async function downloadMcpConfig(server) {
+  if (!server) return vscode.window.showErrorMessage('No server provided.');
+  try {
+    const res = await fetch(`${server.url.replace(/\/$/, '')}/config`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.text();
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) return vscode.window.showErrorMessage('Open a workspace folder to download configuration into.');
+    const outPath = path.join(workspaceRoot, 'mcp-config.json');
+    fs.writeFileSync(outPath, body, 'utf8');
+    vscode.window.showInformationMessage(`MCP configuration downloaded to ${outPath}`);
+
+    // After download, prompt for Confluence and Jira PATs and store per-server
+    try {
+      const cbase = await askRequiredInput('Confluence base URL', 'e.g. https://your-domain.atlassian.net');
+      const cemail = await askRequiredInput('Confluence email', 'Atlassian user email');
+      const ctoken = await askRequiredInput('Confluence API token', 'Enter your Confluence API token');
+      const confObj = { base: cbase, email: cemail, token: ctoken };
+      await extensionContext.secrets.store(`confluence:${server.name}`, JSON.stringify(confObj));
+      vscode.window.showInformationMessage('Confluence credentials saved to Secret Storage.');
+    } catch (err) {}
+
+    try {
+      const jbase = await askRequiredInput('Jira base URL', 'e.g. https://your-domain.atlassian.net');
+      const jemail = await askRequiredInput('Jira email', 'Atlassian user email');
+      const jtoken = await askRequiredInput('Jira API token', 'Enter your Jira API token');
+      const jiraObj = { base: jbase, email: jemail, token: jtoken };
+      await extensionContext.secrets.store(`jira:${server.name}`, JSON.stringify(jiraObj));
+      vscode.window.showInformationMessage('Jira credentials saved to Secret Storage.');
+    } catch (err) {}
+
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to download MCP config: ${err.message}`);
+  }
+}
+
 function stopServer() {
   if (!serverProcess) {
     vscode.window.showInformationMessage('No MCP server is currently running.');
@@ -299,9 +415,9 @@ async function searchJiraIssues() {
   vscode.window.showInformationMessage('Jira search results loaded into the MCP output channel.');
 }
 
-function createMcpViewItem(label, command, tooltip) {
+function createMcpViewItem(label, command, tooltip, args) {
   const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
-  item.command = { command, title: label };
+  item.command = { command, title: label, arguments: args ? [args] : undefined };
   item.tooltip = tooltip;
   return item;
 }
@@ -312,7 +428,8 @@ class McpViewProvider {
   }
 
   getChildren() {
-    return [
+    const servers = getServers();
+    const staticItems = [
       createMcpViewItem('Start MCP server', 'mcpAtlassian.startServer', 'Start the local MCP server'),
       createMcpViewItem('Stop MCP server', 'mcpAtlassian.stopServer', 'Stop the local MCP server'),
       createMcpViewItem('Open MCP root', 'mcpAtlassian.openServer', 'Open the MCP server root endpoint'),
@@ -332,6 +449,19 @@ class McpViewProvider {
       createMcpViewItem('Update Jira issue', 'mcpAtlassian.updateJiraIssue', 'Send updates to a Jira issue'),
       createMcpViewItem('Search Jira issues', 'mcpAtlassian.searchJiraIssues', 'Search Jira issues with JQL')
     ];
+
+    // Create server items
+    const serverItems = servers.flatMap((s) => {
+      const label = `Server: ${s.name} (${s.url})`;
+      const items = [
+        createMcpViewItem(label + ' · Open', 'mcpAtlassian.openServerEntry', 'Open this MCP server in the browser', s),
+        createMcpViewItem(label + ' · Start', 'mcpAtlassian.startServerEntry', 'Start this local MCP server (if registered local)', s),
+        createMcpViewItem(label + ' · Download config', 'mcpAtlassian.downloadMcpConfig', 'Download the MCP configuration into workspace', s)
+      ];
+      return items;
+    });
+
+    return staticItems.concat([{ label: '--- Servers ---', command: null }], serverItems);
   }
 }
 
@@ -352,6 +482,10 @@ function activate(context) {
     vscode.commands.registerCommand('mcpAtlassian.setJiraPat', setJiraPat),
     vscode.commands.registerCommand('mcpAtlassian.setGhcrPat', setGhcrPat),
     vscode.commands.registerCommand('mcpAtlassian.setGithubPat', setGithubPat),
+    vscode.commands.registerCommand('mcpAtlassian.addMcpServer', addMcpServer),
+    vscode.commands.registerCommand('mcpAtlassian.openServerEntry', (server) => openServerEntry(server)),
+    vscode.commands.registerCommand('mcpAtlassian.startServerEntry', (server) => startServerEntry(server)),
+    vscode.commands.registerCommand('mcpAtlassian.downloadMcpConfig', (server) => downloadMcpConfig(server)),
     vscode.commands.registerCommand('mcpAtlassian.readConfluencePage', readConfluencePage),
     vscode.commands.registerCommand('mcpAtlassian.updateConfluencePage', updateConfluencePage),
     vscode.commands.registerCommand('mcpAtlassian.searchConfluencePages', searchConfluencePages),

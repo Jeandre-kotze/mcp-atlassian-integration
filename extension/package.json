@@ -54,6 +54,22 @@
         "title": "MCP Atlassian: Set GitHub PAT"
       },
       {
+        "command": "mcpAtlassian.addMcpServer",
+        "title": "MCP Atlassian: Add MCP Server"
+      },
+      {
+        "command": "mcpAtlassian.downloadMcpConfig",
+        "title": "MCP Atlassian: Download MCP Configuration"
+      },
+      {
+        "command": "mcpAtlassian.openServerEntry",
+        "title": "MCP Atlassian: Open MCP Server"
+      },
+      {
+        "command": "mcpAtlassian.startServerEntry",
+        "title": "MCP Atlassian: Start Registered Local MCP Server"
+      },
+      {
         "command": "mcpAtlassian.setJiraPat",
         "title": "MCP Atlassian: Set Jira PAT"
       },
