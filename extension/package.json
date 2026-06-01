@@ -74,6 +74,26 @@
         "title": "MCP Atlassian: Import MCP Configuration"
       },
       {
+        "command": "mcpAtlassian.pushGhcrPatToServer",
+        "title": "MCP Atlassian: Push GHCR PAT to Server"
+      },
+      {
+        "command": "mcpAtlassian.pushGithubPatToServer",
+        "title": "MCP Atlassian: Push GitHub PAT to Server"
+      },
+      {
+        "command": "mcpAtlassian.editServer",
+        "title": "MCP Atlassian: Edit Registered Server"
+      },
+      {
+        "command": "mcpAtlassian.removeServer",
+        "title": "MCP Atlassian: Remove Registered Server"
+      },
+      {
+        "command": "mcpAtlassian.copilotAsk",
+        "title": "MCP Atlassian: Copilot Ask"
+      },
+      {
         "command": "mcpAtlassian.setJiraPat",
         "title": "MCP Atlassian: Set Jira PAT"
       },

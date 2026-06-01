@@ -257,6 +257,67 @@ async function downloadMcpConfig(server) {
   }
 }
 
+async function pushGhcrPatToServer(server) {
+  if (!server) return vscode.window.showErrorMessage('No server provided.');
+  if (!extensionContext) throw new Error('Extension context not available');
+  const pat = await extensionContext.secrets.get('GHCR_PAT');
+  if (!pat) return vscode.window.showErrorMessage('No GHCR_PAT stored in Secret Storage. Use Set GHCR PAT first.');
+  try {
+    await postToServer(server, '/config/ghcr', { token: pat });
+    vscode.window.showInformationMessage(`GHCR PAT posted to MCP server '${server.name}'.`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to send GHCR PAT to server: ${err.message}`);
+  }
+}
+
+async function pushGithubPatToServer(server) {
+  if (!server) return vscode.window.showErrorMessage('No server provided.');
+  if (!extensionContext) throw new Error('Extension context not available');
+  const pat = await extensionContext.secrets.get('GITHUB_PAT');
+  if (!pat) return vscode.window.showErrorMessage('No GITHUB_PAT stored in Secret Storage. Use Set GitHub PAT first.');
+  try {
+    await postToServer(server, '/config/github', { token: pat });
+    vscode.window.showInformationMessage(`GitHub PAT posted to MCP server '${server.name}'.`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Failed to send GitHub PAT to server: ${err.message}`);
+  }
+}
+
+async function editServer(server) {
+  if (!server) return vscode.window.showErrorMessage('No server provided.');
+  const servers = getServers();
+  const idx = servers.findIndex((s) => s.name === server.name && s.url === server.url);
+  if (idx === -1) return vscode.window.showErrorMessage('Server not found.');
+  const name = await askRequiredInput('Server name', server.name);
+  const url = await askRequiredInput('Server URL', server.url);
+  servers[idx].name = name;
+  servers[idx].url = url;
+  await saveServers(servers);
+  vscode.window.showInformationMessage(`Server '${name}' updated.`);
+}
+
+async function removeServer(server) {
+  if (!server) return vscode.window.showErrorMessage('No server provided.');
+  const confirm = await vscode.window.showQuickPick(['Cancel', 'Remove'], { placeHolder: `Remove server '${server.name}'?` });
+  if (confirm !== 'Remove') return;
+  const servers = getServers();
+  const updated = servers.filter((s) => !(s.name === server.name && s.url === server.url));
+  await saveServers(updated);
+  vscode.window.showInformationMessage(`Server '${server.name}' removed.`);
+}
+
+async function copilotAsk(server) {
+  if (!server) return vscode.window.showErrorMessage('No server provided.');
+  const prompt = await askRequiredInput('Copilot prompt', 'Enter the prompt to send to MCP Copilot');
+  try {
+    const res = await postToServer(server, '/copilot/ask', { prompt });
+    showResultInOutput(`Copilot response from ${server.name}`, res);
+    vscode.window.showInformationMessage('Copilot response loaded into MCP output channel.');
+  } catch (err) {
+    vscode.window.showErrorMessage(`Copilot request failed: ${err.message}`);
+  }
+}
+
 async function importMcpConfig() {
   const workspaceRoot = getWorkspaceRoot();
   if (!workspaceRoot) return vscode.window.showErrorMessage('Open a workspace folder before importing configuration.');
@@ -518,10 +579,19 @@ async function searchJiraIssues() {
   vscode.window.showInformationMessage('Jira search results loaded into the MCP output channel.');
 }
 
-function createMcpViewItem(label, command, tooltip, args) {
+function createMcpViewItem(label, command, tooltip, args, contextValue) {
   const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
-  item.command = { command, title: label, arguments: args ? [args] : undefined };
+  if (command) item.command = { command, title: label, arguments: args ? [args] : undefined };
   item.tooltip = tooltip;
+  if (contextValue) item.contextValue = contextValue;
+  return item;
+}
+
+function createServerParentItem(server) {
+  const item = new vscode.TreeItem(`Server: ${server.name} (${server.url})`, vscode.TreeItemCollapsibleState.Collapsed);
+  item.tooltip = server.url;
+  item.contextValue = 'serverParent';
+  item.server = server; // attach server object for children resolution
   return item;
 }
 
@@ -530,7 +600,7 @@ class McpViewProvider {
     return element;
   }
 
-  getChildren() {
+  getChildren(element) {
     const servers = getServers();
     const staticItems = [
       createMcpViewItem('Start MCP server', 'mcpAtlassian.startServer', 'Start the local MCP server'),
@@ -553,18 +623,24 @@ class McpViewProvider {
       createMcpViewItem('Search Jira issues', 'mcpAtlassian.searchJiraIssues', 'Search Jira issues with JQL')
     ];
 
-    // Create server items
-    const serverItems = servers.flatMap((s) => {
-      const label = `Server: ${s.name} (${s.url})`;
-      const items = [
-        createMcpViewItem(label + ' · Open', 'mcpAtlassian.openServerEntry', 'Open this MCP server in the browser', s),
-        createMcpViewItem(label + ' · Start', 'mcpAtlassian.startServerEntry', 'Start this local MCP server (if registered local)', s),
-        createMcpViewItem(label + ' · Download config', 'mcpAtlassian.downloadMcpConfig', 'Download the MCP configuration into workspace', s)
+    if (element && element.server) {
+      const s = element.server;
+      return [
+        createMcpViewItem('Open', 'mcpAtlassian.openServerEntry', 'Open this MCP server in the browser', s, 'serverAction'),
+        createMcpViewItem('Start (local)', 'mcpAtlassian.startServerEntry', 'Start this local MCP server (if registered local)', s, 'serverAction'),
+        createMcpViewItem('Download config', 'mcpAtlassian.downloadMcpConfig', 'Download the MCP configuration into workspace', s, 'serverAction'),
+        createMcpViewItem('Import config into workspace', 'mcpAtlassian.importMcpConfig', 'Import mcp-config.json from workspace', s, 'serverAction'),
+        createMcpViewItem('Push GitHub PAT', 'mcpAtlassian.pushGithubPatToServer', 'Send stored GitHub PAT to this server', s, 'serverAction'),
+        createMcpViewItem('Push GHCR PAT', 'mcpAtlassian.pushGhcrPatToServer', 'Send stored GHCR PAT to this server', s, 'serverAction'),
+        createMcpViewItem('Copilot: Send Prompt', 'mcpAtlassian.copilotAsk', 'Send a prompt to MCP Copilot endpoint', s, 'serverAction'),
+        createMcpViewItem('Edit server', 'mcpAtlassian.editServer', 'Edit this server registration', s, 'serverAction'),
+        createMcpViewItem('Remove server', 'mcpAtlassian.removeServer', 'Remove this server from the list', s, 'serverAction')
       ];
-      return items;
-    });
+    }
 
-    return staticItems.concat([{ label: '--- Servers ---', command: null }], serverItems);
+    const parentServerItems = servers.map((s) => createServerParentItem(s));
+    const separator = createMcpViewItem('--- Servers ---', null, '', null);
+    return staticItems.concat([separator], parentServerItems);
   }
 }
 
@@ -589,6 +665,11 @@ function activate(context) {
     vscode.commands.registerCommand('mcpAtlassian.openServerEntry', (server) => openServerEntry(server)),
     vscode.commands.registerCommand('mcpAtlassian.startServerEntry', (server) => startServerEntry(server)),
     vscode.commands.registerCommand('mcpAtlassian.importMcpConfig', importMcpConfig),
+    vscode.commands.registerCommand('mcpAtlassian.pushGhcrPatToServer', (server) => pushGhcrPatToServer(server)),
+    vscode.commands.registerCommand('mcpAtlassian.pushGithubPatToServer', (server) => pushGithubPatToServer(server)),
+    vscode.commands.registerCommand('mcpAtlassian.editServer', (server) => editServer(server)),
+    vscode.commands.registerCommand('mcpAtlassian.removeServer', (server) => removeServer(server)),
+    vscode.commands.registerCommand('mcpAtlassian.copilotAsk', (server) => copilotAsk(server)),
     vscode.commands.registerCommand('mcpAtlassian.downloadMcpConfig', (server) => downloadMcpConfig(server)),
     vscode.commands.registerCommand('mcpAtlassian.readConfluencePage', readConfluencePage),
     vscode.commands.registerCommand('mcpAtlassian.updateConfluencePage', updateConfluencePage),
